@@ -6,7 +6,7 @@ from model.utils import batch_dihedrals
 from model.cycle_utils import *
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-
+device = 'cpu'
 
 def construct_conformers(data, model):
 

@@ -5,6 +5,7 @@ import networkx as nx
 from model.cycle_utils import get_current_cycle_indices
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = 'cpu'
 angle_mask_ref = torch.LongTensor([[0, 0, 0, 0, 0, 0],
                                    [0, 0, 0, 0, 0, 0],
                                    [1, 0, 0, 0, 0, 0],

@@ -28,6 +28,7 @@ class GeoMol(nn.Module):
         self.teacher_force = hyperparams['teacher_force']
         self.random_alpha = hyperparams['random_alpha']
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.device = 'cpu'
 
         self.gnn = GNN(node_dim=num_node_features + self.random_vec_dim,
                        edge_dim=num_edge_features + self.random_vec_dim,

@@ -67,7 +67,7 @@ source activate GeoMol
 
 echo "Installing PyTorch with requested CUDA version..."
 echo "Running: conda install pytorch torchvision $CUDA -c pytorch"
-conda install pytorch torchvision $CUDA -c pytorch
+#conda install pytorch=1.7 torchvision $CUDA -c pytorch
 
 echo "Installing torch-geometric..."
 echo "Using CUDA version: $CUDA_VERSION"
@@ -79,4 +79,4 @@ pip install torch-scatter -f https://pytorch-geometric.com/whl/torch-${TORCH_VER
 pip install torch-sparse -f https://pytorch-geometric.com/whl/torch-${TORCH_VERSION}+${CUDA_VERSION}.html
 pip install torch-cluster -f https://pytorch-geometric.com/whl/torch-${TORCH_VERSION}+${CUDA_VERSION}.html
 pip install torch-spline-conv -f https://pytorch-geometric.com/whl/torch-${TORCH_VERSION}+${CUDA_VERSION}.html
-pip install torch-geometric
+pip install torch-geometric==1.6.3

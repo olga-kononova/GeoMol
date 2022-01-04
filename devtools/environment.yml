@@ -4,6 +4,7 @@ channels:
   - anaconda
   - conda-forge
   - defaults
+  - pytorch
 dependencies:
   - _libgcc_mutex=0.1=main
   - _openmp_mutex=4.5=1_gnu
@@ -107,6 +108,8 @@ dependencies:
   - pycparser=2.20=pyh9f0ad1d_2
   - pygments=2.9.0=pyhd8ed1ab_0
   - pyparsing=2.4.7=pyhd3eb1b0_0
+  - pytorch=1.8
+  - cudatoolkit=10.2
   - pyqt=5.9.2=py37h05f1152_2
   - pyrsistent=0.17.3=py37h5e8e339_2
   - python=3.7.10=h12debd9_4
