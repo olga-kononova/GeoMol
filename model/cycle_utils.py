@@ -1,6 +1,8 @@
 import torch
 import numpy as np
 
+device = torch.device("cuda")
+
 
 def get_cycle_values(cycle_list, start_at=None):
     start_at = 0 if start_at is None else cycle_list.index(start_at)
@@ -18,7 +20,7 @@ def get_cycle_indices(cycle, start_idx):
     a = start
     while start != end:
         b = next(cycle_it)
-        indices.append(torch.tensor([a, b]))
+        indices.append(torch.tensor([a, b]).to(device))
         a = b
         end = b
 
@@ -48,7 +50,7 @@ def align_coords_Kabsch(p_cycle_coords, q_cycle_coords, p_mask, q_mask=None):
     H = torch.matmul(p_cycle_coords_centered.permute(0, 1, 3, 2), q_cycle_coords_centered.unsqueeze(0))
     u, s, v = torch.svd(H)
     d = torch.sign(torch.det(torch.matmul(v, u.permute(0, 1, 3, 2))))
-    R_1 = torch.diag_embed(torch.ones([p_cycle_coords.size(0), q_cycle_coords.size(0), 3]))
+    R_1 = torch.diag_embed(torch.ones([p_cycle_coords.size(0), q_cycle_coords.size(0), 3]).to(device))
     R_1[:, :, 2, 2] = d
     R = torch.matmul(v, torch.matmul(R_1, u.permute(0, 1, 3, 2)))
     b = q_cycle_coords[:, q_mask].mean(dim=1) - torch.matmul(R, p_cycle_coords[:, :, p_mask].mean(dim=2).unsqueeze(

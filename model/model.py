@@ -17,7 +17,7 @@ DEBUG_NEIGHBORHOOD_PAIRS = False
 
 
 class GeoMol(nn.Module):
-    def __init__(self, hyperparams, num_node_features, num_edge_features):
+    def __init__(self, hyperparams, num_node_features, num_edge_features, device):
         super(GeoMol, self).__init__()
 
         self.model_dim = hyperparams['model_dim']
@@ -27,8 +27,9 @@ class GeoMol(nn.Module):
         self.loss_type = hyperparams['loss_type']
         self.teacher_force = hyperparams['teacher_force']
         self.random_alpha = hyperparams['random_alpha']
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.device = 'cpu'
+        self.device = torch.device(device)
+        #self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        #self.device = 'cpu'
 
         self.gnn = GNN(node_dim=num_node_features + self.random_vec_dim,
                        edge_dim=num_edge_features + self.random_vec_dim,
@@ -104,7 +105,8 @@ class GeoMol(nn.Module):
         self.model_stats = batched_model_stats
 
         # loss
-        molecule_loss = torch.stack([torch.stack([self.batch_molecule_loss(a, b, ignore_neighbors) for b in model_stats]) for a in true_stats])
+        molecule_loss = torch.stack([torch.stack([self.batch_molecule_loss(a, b, ignore_neighbors) for b in model_stats]) 
+                                     for a in true_stats])
 
         pos_mask_L2 = pos_mask.view(molecule_loss.size(2), self.n_true_confs).t()
         pos_mask_L1 = pos_mask_L2.unsqueeze(1).repeat(1, self.n_model_confs, 1)
@@ -169,7 +171,7 @@ class GeoMol(nn.Module):
         self.neighbor_mask = torch.zeros([self.n_neighborhoods, 4]).to(self.device)
 
         # maps node index to hidden index as given by self.neighbors
-        self.x_to_h_map = torch.zeros(x.size(0))
+        self.x_to_h_map = torch.zeros(x.size(0)).to(self.device)
 
         # maps local neighborhood to batch molecule
         self.neighborhood_to_mol_map = torch.zeros(self.n_neighborhoods, dtype=torch.int64).to(self.device)
@@ -282,7 +284,9 @@ class GeoMol(nn.Module):
             signed_vols = signed_volume(unit_normals[chiral_ids])
             chiral_tag_confs = chiral_tag_neighborhoods[chiral_ids].unsqueeze(-1).repeat(1, self.n_model_confs)
             z_flip = signed_vols * chiral_tag_confs
-            flip_mat = torch.diag_embed(torch.stack([torch.ones_like(z_flip), torch.ones_like(z_flip), z_flip]).permute(1, 2, 0)).unsqueeze(1)
+            flip_mat = torch.diag_embed(torch.stack([torch.ones_like(z_flip).to(self.device), 
+                                                     torch.ones_like(z_flip).to(self.device), 
+                                                     z_flip]).permute(1, 2, 0)).unsqueeze(1)
             unit_normals[chiral_ids] = torch.matmul(flip_mat, unit_normals[chiral_ids].unsqueeze(-1)).squeeze(-1)
 
         # distance predictions
@@ -507,7 +511,10 @@ class GeoMol(nn.Module):
 
         # dihedral loss
         model_dihedrals_perms = model_dihedrals.unsqueeze(-1).repeat(1, 1, 1, 6)
-        dihedral_loss_perms = torch.sum(von_Mises_loss(true_dihedrals[1], model_dihedrals_perms[1], true_dihedrals[0], model_dihedrals_perms[0]) * self.dihedral_mask.unsqueeze(-1), dim=-2) / (self.dihedral_mask.sum(dim=-1, keepdim=True) + 1e-10)
+        dihedral_loss_perms = torch.sum(von_Mises_loss(true_dihedrals[1], 
+                                                       model_dihedrals_perms[1], 
+                                                       true_dihedrals[0], 
+                                                       model_dihedrals_perms[0]) * self.dihedral_mask.unsqueeze(-1), dim=-2) / (self.dihedral_mask.sum(dim=-1, keepdim=True) + 1e-10)
         dihedral_loss = scatter(dihedral_loss_perms.max(dim=-1).values, self.neighborhood_pairs_to_mol_map, reduce="mean")
 
         # three-hop distance loss

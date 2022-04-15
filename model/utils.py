@@ -1,11 +1,14 @@
+import os
 import torch
 import torch_geometric as tg
 from torch_geometric.utils import degree
 import networkx as nx
 from model.cycle_utils import get_current_cycle_indices
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device = 'cpu'
+#device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#device = 'cpu'
+device = torch.device(os.getenv("PYTORCH_DEVICE", "cuda"))
+
 angle_mask_ref = torch.LongTensor([[0, 0, 0, 0, 0, 0],
                                    [0, 0, 0, 0, 0, 0],
                                    [1, 0, 0, 0, 0, 0],
@@ -85,7 +88,7 @@ def get_dihedral_pairs(edge_index, data):
     dihedral_idxs = torch.nonzero(dihedral_pairs.sort(dim=0).indices[0, :] == 0).squeeze().detach().cpu().numpy()
 
     # prioritize rings for assigning dihedrals
-    dihedral_pairs = dihedral_pairs.t()[dihedral_idxs]
+    dihedral_pairs = dihedral_pairs.t().cpu().detach()[dihedral_idxs]
     G = nx.to_undirected(tg.utils.to_networkx(data))
     cycles = nx.cycle_basis(G)
     keep, sorted_keep = [], []
@@ -106,7 +109,7 @@ def get_dihedral_pairs(edge_index, data):
             cycle_indices = get_current_cycle_indices(cycles, x_cycle_check, x)
             keep.extend(cycle_indices)
 
-            sorted_keep.extend([sorted(c) for c in cycle_indices])
+            sorted_keep.extend([sorted(c.cpu()) for c in cycle_indices])
             continue
 
         if any(y_cycle_check):
@@ -115,12 +118,13 @@ def get_dihedral_pairs(edge_index, data):
             keep.extend(cycle_indices)
 
             sorted_keep.append(sorted(pair))
-            sorted_keep.extend([sorted(c) for c in cycle_indices])
+            sorted_keep.extend([sorted(c.cpu()) for c in cycle_indices])
             continue
 
         keep.append(pair)
 
-    keep = [t.to(device) for t in keep]
+    #keep = torch.tensor(keep).to(device) 
+    keep = [torch.tensor(t).to(device) for t in keep]
     return torch.stack(keep).t()
 
 
@@ -344,7 +348,7 @@ def rotation_matrix_inf(neighbor_coords, neighbor_mask, neighbor_map):
 
 def build_alpha_rotation_inf(alpha, n_model_confs):
 
-    H_alpha = torch.FloatTensor([[[1, 0, 0], [0, 0, 0], [0, 0, 0]]]).repeat(n_model_confs, 1, 1)
+    H_alpha = torch.FloatTensor([[[1, 0, 0], [0, 0, 0], [0, 0, 0]]]).repeat(n_model_confs, 1, 1).to(device)
     H_alpha[:, 1, 1] = torch.cos(alpha)
     H_alpha[:, 1, 2] = -torch.sin(alpha)
     H_alpha[:, 2, 1] = torch.sin(alpha)

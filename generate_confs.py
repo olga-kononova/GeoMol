@@ -8,6 +8,7 @@ from tqdm import tqdm
 import random
 import torch
 import yaml
+import os
 
 from model.model import GeoMol
 from model.featurization import featurize_mol_from_smiles
@@ -28,6 +29,8 @@ random.seed(args.seed)
 np.random.seed(args.seed)
 torch.manual_seed(args.seed)
 
+device = torch.device(os.getenv("PYTORCH_DEVICE", "cuda"))
+
 trained_model_dir = args.trained_model_dir
 test_csv = args.test_csv
 dataset = args.dataset
@@ -35,17 +38,19 @@ mmff = args.mmff
 
 with open(f'{trained_model_dir}/model_parameters.yml') as f:
     model_parameters = yaml.full_load(f)
-model = GeoMol(**model_parameters)
+model = GeoMol(**model_parameters).to(device)
 
-state_dict = torch.load(f'{trained_model_dir}/best_model.pt', map_location=torch.device('cpu'))
+state_dict = torch.load(f'{trained_model_dir}/best_model.pt', map_location=device)
 model.load_state_dict(state_dict, strict=True)
 model.eval()
 
 test_data = pd.read_csv(test_csv)
 
 conformer_dict = {}
-for smi, n_confs in tqdm(test_data.values):
+num = 0
+for smi, n_confs, _ in tqdm(test_data.values):
     
+    #try:
     # create data object (skip smiles rdkit can't handle)
     tg_data = featurize_mol_from_smiles(smi, dataset=dataset)
     if not tg_data:
@@ -53,7 +58,7 @@ for smi, n_confs in tqdm(test_data.values):
         continue
     
     # generate model predictions
-    data = Batch.from_data_list([tg_data])
+    data = Batch.from_data_list([tg_data]).to(device)
     model(data, inference=True, n_model_confs=n_confs*2)
     
     # set coords
@@ -76,11 +81,22 @@ for smi, n_confs in tqdm(test_data.values):
         
     conformer_dict[smi] = mols
     
+    if len(conformer_dict) > 10000:
+        with open(f'{args.out}_{num}.pkl', 'wb') as f:
+            pickle.dump(conformer_dict, f)
+        conformer_dict = {}
+        num += 1
+    # except:
+    #     pass
+    
+with open(f'{args.out}_{num}.pkl', 'wb') as f:
+    pickle.dump(conformer_dict, f)
+                
 # save to file
-if args.out:
-    with open(f'{args.out}', 'wb') as f:
-        pickle.dump(conformer_dict, f)
-else:
-    suffix = '_ff' if mmff else ''
-    with open(f'{trained_model_dir}/test_mols{suffix}.pkl', 'wb') as f:
-        pickle.dump(conformer_dict, f)
+# if args.out:
+#     with open(f'{args.out}', 'wb') as f:
+#         pickle.dump(conformer_dict, f)
+# else:
+#     suffix = '_ff' if mmff else ''
+#     with open(f'{trained_model_dir}/test_mols{suffix}.pkl', 'wb') as f:
+#         pickle.dump(conformer_dict, f)

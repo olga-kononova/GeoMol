@@ -24,7 +24,7 @@ args = parse_train_args()
 logger = create_logger('train', args.log_dir)
 logger.info('Arguments are...')
 for arg in vars(args):
-    logger.info(f'{arg}: {getattr(args, arg)}')
+    logger.info(f"{arg}: {getattr(args, arg)}")
 
 # seeds
 torch.manual_seed(args.seed)

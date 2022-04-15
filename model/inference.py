@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 import networkx as nx
@@ -5,16 +6,17 @@ import torch_geometric as tg
 from model.utils import batch_dihedrals
 from model.cycle_utils import *
 
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device = 'cpu'
+#device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+#device = 'cpu'
+device = torch.device(os.getenv("PYTORCH_DEVICE", "cuda"))
 
 def construct_conformers(data, model):
 
     G = nx.to_undirected(tg.utils.to_networkx(data))
     cycles = nx.cycle_basis(G)
 
-    new_pos = torch.zeros([data.batch.size(0), model.n_model_confs, 3])
-    dihedral_pairs = model.dihedral_pairs.t().detach().numpy()
+    new_pos = torch.zeros([data.batch.size(0), model.n_model_confs, 3]).to(device)
+    dihedral_pairs = model.dihedral_pairs.t().cpu().detach().numpy()
 
     Sx = []
     Sy = []
@@ -66,7 +68,7 @@ def construct_conformers(data, model):
             in_cycle = len(cycle_indices)+1
 
         # new graph
-        p_coords = torch.zeros([4, model.n_model_confs, 3])
+        p_coords = torch.zeros([4, model.n_model_confs, 3]).to(device)
         p_idx = model.neighbors[x_index]
 
         if x_index not in Sx:
@@ -80,11 +82,11 @@ def construct_conformers(data, model):
 
         # update indices
         Sx.extend([x_index])
-        Sx.extend(model.neighbors[x_index].detach().numpy())
+        Sx.extend(model.neighbors[x_index].cpu().detach().numpy())
         Sx = list(set(Sx))
 
         Sy.extend([y_index])
-        Sy.extend(model.neighbors[y_index].detach().numpy())
+        Sy.extend(model.neighbors[y_index].cpu().detach().numpy())
 
         # set px
         p_X = new_pos[x_index]
@@ -96,9 +98,9 @@ def construct_conformers(data, model):
         if cycle_added:
             cycle_avg_coords, cycle_avg_indices = smooth_cycle_coords(model, cycle_indices, new_pos, dihedral_pairs, i+1)
             cycle_avg_coords = cycle_avg_coords - cycle_avg_coords[cycle_avg_indices == y_index] # move y to origin
-            q_idx = model.neighbors[y_index]
+            q_idx = model.neighbors[y_index].cpu()
             q_coords_mask = [True if a in q_idx else False for a in cycle_avg_indices]
-            q_coords = torch.zeros([4, model.n_model_confs, 3])
+            q_coords = torch.zeros([4, model.n_model_confs, 3]).to(device)
             q_reorder = np.argsort([np.where(a == q_idx)[0][0] for a in torch.tensor(cycle_avg_indices)[q_coords_mask]])
             q_coords[0:sum(q_coords_mask)] = cycle_avg_coords[q_coords_mask][q_reorder]
             new_pos_Sy = cycle_avg_coords.clone()
@@ -108,7 +110,7 @@ def construct_conformers(data, model):
             q_coords = model.q_coords[i]
             q_idx = model.neighbors[y_index]
             new_pos[q_idx] = q_coords[0:int(model.dihedral_y_mask[i].sum())]
-            new_pos[y_index] = torch.zeros_like(p_X)  # q_Y always at the origin
+            new_pos[y_index] = torch.zeros_like(p_X).to(device)  # q_Y always at the origin
             new_pos_Sy = new_pos[Sy]
 
         # calculate rotation matrices
@@ -121,13 +123,19 @@ def construct_conformers(data, model):
 
         # translate q
         new_p_Y = new_pos_Sx_2[Sx == y_index]
-        transform_matrix = torch.diag(torch.tensor([-1., -1., 1.])).unsqueeze(0).unsqueeze(0)
+        transform_matrix = torch.diag(torch.tensor([-1., -1., 1.]).to(device)).unsqueeze(0).unsqueeze(0)
         new_pos_Sy_3 = torch.matmul(transform_matrix, new_pos_Sy_2.unsqueeze(-1)).squeeze(-1) + new_p_Y
 
         # rotate by gamma
-        H_gamma = calculate_gamma(model.n_model_confs, model.dihedral_mask[i], model.c_ij[i], model.v_star[i], Sx, Sy,
+        H_gamma = calculate_gamma(model.n_model_confs, 
+                                  model.dihedral_mask[i], 
+                                  model.c_ij[i], 
+                                  model.v_star[i], 
+                                  Sx, 
+                                  Sy,
                                   p_idx, q_idx, x_index, y_index, new_pos_Sx_2, new_pos_Sy_3, new_p_Y)
-        new_pos_Sx_3 = torch.matmul(H_gamma.unsqueeze(0), new_pos_Sx_2.unsqueeze(-1)).squeeze(-1)
+        new_pos_Sx_3 = torch.matmul(H_gamma.unsqueeze(0), 
+                                    new_pos_Sx_2.unsqueeze(-1)).squeeze(-1)
 
         # update all coordinates
         new_pos[Sy] = new_pos_Sy_3
@@ -158,7 +166,7 @@ def smooth_cycle_coords(model, cycle_indices, new_pos, dihedral_pairs, cycle_sta
 
     # intialize lists to track which indices have been added and cycle position vector
     Sx_cycle, Sy_cycle = [[] for i in range(cycle_len)], [[] for i in range(cycle_len)]
-    cycle_pos = torch.zeros_like(new_pos).unsqueeze(0).repeat(cycle_len, 1, 1, 1)
+    cycle_pos = torch.zeros_like(new_pos).unsqueeze(0).repeat(cycle_len, 1, 1, 1).to(device)
 
     for ii, (pairs, ids) in enumerate(zip(cycle_dihedral_pair_orders, cycle_i_orders)):
 
@@ -168,7 +176,7 @@ def smooth_cycle_coords(model, cycle_indices, new_pos, dihedral_pairs, cycle_sta
 
         x_indices, y_indices = pairs.transpose()
 
-        p_coords = torch.zeros([cycle_len, 4, model.n_model_confs, 3])
+        p_coords = torch.zeros([cycle_len, 4, model.n_model_confs, 3]).to(device)
         p_idx = [model.neighbors[x] for x in x_indices]
         if ii == 0:
 
@@ -203,7 +211,7 @@ def smooth_cycle_coords(model, cycle_indices, new_pos, dihedral_pairs, cycle_sta
         new_pos_Sy = []
         for i, q_i in enumerate(q_idx):
             cycle_pos[i, q_i] = q_coords[i, 0:int(model.dihedral_y_mask[ids[i]].sum())]
-            cycle_pos[i, y_indices[i]] = torch.zeros_like(p_X[i])  # q_Y always at the origin
+            cycle_pos[i, y_indices[i]] = torch.zeros_like(p_X[i]).to(device)  # q_Y always at the origin
             new_pos_Sy.append(cycle_pos[i, Sy_cycle[i]])
 
         # calculate rotation matrices
@@ -211,14 +219,16 @@ def smooth_cycle_coords(model, cycle_indices, new_pos, dihedral_pairs, cycle_sta
         H_YX = list(map(rotation_matrix_inf_v2, q_coords, model.y_map_to_neighbor_x[ids]))
 
         # rotate
-        new_pos_Sx_2 = [torch.matmul(H_XY[i].unsqueeze(0), new_pos_Sx[i].unsqueeze(-1)).squeeze(-1) for i in range(cycle_len)]
-        new_pos_Sy_2 = [torch.matmul(H_YX[i].unsqueeze(0), new_pos_Sy[i].unsqueeze(-1)).squeeze(-1) for i in range(cycle_len)]
+        new_pos_Sx_2 = [torch.matmul(H_XY[i].unsqueeze(0), new_pos_Sx[i].unsqueeze(-1)).squeeze(-1) 
+                        for i in range(cycle_len)]
+        new_pos_Sy_2 = [torch.matmul(H_YX[i].unsqueeze(0), new_pos_Sy[i].unsqueeze(-1)).squeeze(-1) 
+                        for i in range(cycle_len)]
 
         for i in range(cycle_len):
 
             # translate q
             new_p_Y = new_pos_Sx_2[i][Sx_cycle[i] == y_indices[i]].squeeze(-1)
-            transform_matrix = torch.diag(torch.tensor([-1., -1., 1.])).unsqueeze(0).unsqueeze(0)
+            transform_matrix = torch.diag(torch.tensor([-1., -1., 1.]).to(device)).unsqueeze(0).unsqueeze(0)
             new_pos_Sy_3 = torch.matmul(transform_matrix, new_pos_Sy_2[i].unsqueeze(-1)).squeeze(-1) + new_p_Y
 
             # rotate by gamma
@@ -239,7 +249,7 @@ def smooth_cycle_coords(model, cycle_indices, new_pos, dihedral_pairs, cycle_sta
         if not np.all(ids == cycle_i_orders[-1]):
             Sy_cycle = [[] for i in range(cycle_len)]
         else:
-            cycle_mask = torch.ones([cycle_pos.size(0), cycle_pos.size(1)])
+            cycle_mask = torch.ones([cycle_pos.size(0), cycle_pos.size(1)]).to(device)
             for i in range(cycle_len):
                 cycle_mask[i, y_indices[i]] = 0
                 y_neighbor_ids = model.neighbors[y_indices[i]]
@@ -314,7 +324,7 @@ def construct_conformers_acyclic(data, n_true_confs, n_model_confs, dihedral_pai
         q_coords = model_q_coords[i]
         q_idx = neighbors[y_index]
         new_pos[q_idx] = q_coords[0:int(dihedral_y_mask[i].sum())]
-        new_pos[y_index] = torch.zeros_like(p_X)  # q_Y always at the origin
+        new_pos[y_index] = torch.zeros_like(p_X).to(device)  # q_Y always at the origin
         new_pos_Sy = new_pos[Sy]
 
         # calculate rotation matrices
@@ -327,7 +337,7 @@ def construct_conformers_acyclic(data, n_true_confs, n_model_confs, dihedral_pai
 
         # translate q
         new_p_Y = new_pos_Sx_2[Sx == y_index]
-        transform_matrix = torch.diag(torch.tensor([-1., -1., 1.])).unsqueeze(0).unsqueeze(0)
+        transform_matrix = torch.diag(torch.tensor([-1., -1., 1.]).to(device)).unsqueeze(0).unsqueeze(0)
         new_pos_Sy_3 = torch.matmul(transform_matrix, new_pos_Sy_2.unsqueeze(-1)).squeeze(-1) + new_p_Y
 
         # rotate by gamma
@@ -373,7 +383,7 @@ def calculate_gamma(n_model_confs, dihedral_mask, c_ij, v_star, Sx, Sy, p_idx, q
     # build A matrix
     A_curr = torch.sum(A_ij * c_ij.unsqueeze(-1), dim=0)
     determinants = torch.det(A_curr) + 1e-10
-    A_curr_inv_ = A_curr.view(n_model_confs, 4)[:, [3, 1, 2, 0]] * torch.tensor([[1., -1., -1., 1.]])
+    A_curr_inv_ = A_curr.view(n_model_confs, 4)[:, [3, 1, 2, 0]] * torch.tensor([[1., -1., -1., 1.]]).to(device)
     A_curr_inv = (A_curr_inv_ / determinants.unsqueeze(-1)).view(n_model_confs, 2, 2)
     A_curr_inv_v_star = torch.matmul(A_curr_inv, v_star.unsqueeze(-1)).squeeze(-1)
 
@@ -419,7 +429,7 @@ def rotation_matrix_inf_v2(neighbor_coords, neighbor_map):
 
 def build_A_matrix_inf(curr_sin, curr_cos, n_model_confs):
 
-    A_ij = torch.FloatTensor([[[[0, 0], [0, 0]]]]).repeat(9, n_model_confs, 1, 1)
+    A_ij = torch.FloatTensor([[[[0, 0], [0, 0]]]]).repeat(9, n_model_confs, 1, 1).to(device)
     A_ij[:, :, 0, 0] = curr_cos
     A_ij[:, :, 0, 1] = curr_sin
     A_ij[:, :, 1, 0] = curr_sin
@@ -429,7 +439,7 @@ def build_A_matrix_inf(curr_sin, curr_cos, n_model_confs):
 
 
 def build_gamma_rotation_inf(gamma_sin, gamma_cos, n_model_confs):
-    H_gamma = torch.FloatTensor([[[1, 0, 0], [0, 0, 0], [0, 0, 0]]]).repeat(n_model_confs, 1, 1)
+    H_gamma = torch.FloatTensor([[[1, 0, 0], [0, 0, 0], [0, 0, 0]]]).repeat(n_model_confs, 1, 1).to(device)
     H_gamma[:, 1, 1] = gamma_cos
     H_gamma[:, 1, 2] = -gamma_sin
     H_gamma[:, 2, 1] = gamma_sin
